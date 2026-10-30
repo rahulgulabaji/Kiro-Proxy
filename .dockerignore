@@ -1,0 +1,7 @@
+.git
+.github
+*.exe
+*.ps1
+dist/
+*.sqlite3
+
