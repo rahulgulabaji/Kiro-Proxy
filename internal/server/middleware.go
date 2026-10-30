@@ -23,6 +23,7 @@ func traceMiddleware(next http.Handler) http.Handler {
 }
 
 // authMiddleware enforces API key authentication when configured.
+// Accepts Authorization: Bearer <key>, x-api-key, and anthropic-api-key headers.
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.apiKey == "" {
@@ -33,9 +34,21 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		authHeader := r.Header.Get("Authorization")
-		token, ok := strings.CutPrefix(authHeader, "Bearer ")
-		if !ok || subtle.ConstantTimeCompare([]byte(token), []byte(s.apiKey)) != 1 {
+
+		token := ""
+		if authHeader := r.Header.Get("Authorization"); authHeader != "" {
+			if t, ok := strings.CutPrefix(authHeader, "Bearer "); ok {
+				token = t
+			} else {
+				token = authHeader
+			}
+		} else if xKey := r.Header.Get("x-api-key"); xKey != "" {
+			token = xKey
+		} else if aKey := r.Header.Get("anthropic-api-key"); aKey != "" {
+			token = aKey
+		}
+
+		if token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(s.apiKey)) != 1 {
 			httpx.WriteError(w, http.StatusUnauthorized, httpx.ErrTypeAuthentication, "invalid API key")
 			return
 		}
@@ -50,7 +63,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 		if isLocalhostOrigin(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, x-api-key, anthropic-api-key, X-Claude-Code-Session-Id")
 			w.Header().Set("Vary", "Origin")
 		}
 
@@ -68,13 +81,12 @@ func isLocalhostOrigin(origin string) bool {
 		return false
 	}
 	u, err := url.Parse(origin)
-	if err != nil || u.Scheme == "" || u.Host == "" {
+	if err != nil {
 		return false
 	}
-	// Reject origins with userinfo or path components that could be spoofed.
-	if u.User != nil || (u.Path != "" && u.Path != "/") {
+	if u.Scheme != "http" && u.Scheme != "https" {
 		return false
 	}
-	host := u.Hostname()
-	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+	h := u.Hostname()
+	return h == "localhost" || h == "127.0.0.1" || h == "::1"
 }

@@ -9,7 +9,7 @@ import (
 // ExtractTextContent extracts plain text from message content.
 // String content is returned as-is.
 // For block arrays: text blocks are joined with space, thinking blocks are ignored,
-// unknown blocks are converted to text like [type: name].
+// document blocks are parsed for text, unknown blocks are converted to text like [type: name].
 func ExtractTextContent(content anthropic.MessageContent) string {
 	if content.IsString() {
 		return content.Text
@@ -19,6 +19,10 @@ func ExtractTextContent(content anthropic.MessageContent) string {
 		switch {
 		case b.Type == anthropic.BlockTypeText:
 			parts = append(parts, b.Text)
+		case b.Type == "document":
+			if docText := ExtractDocumentContent(b); docText != "" {
+				parts = append(parts, docText)
+			}
 		case handledSeparately(b.Type):
 			// Skip — handled separately.
 		default:
@@ -58,17 +62,14 @@ func textualizeUnknownBlock(b anthropic.ContentBlock) string {
 
 // ExtractSystemPrompt extracts the system prompt text from the SystemPrompt union type.
 // String form returns as-is. Array form joins text blocks with "\n".
-func ExtractSystemPrompt(system anthropic.SystemPrompt) string {
-	if system.IsEmpty() {
-		return ""
-	}
-	if system.Text != "" {
-		return system.Text
+func ExtractSystemPrompt(sp anthropic.SystemPrompt) string {
+	if sp.Text != "" {
+		return sp.Text
 	}
 	var parts []string
-	for _, block := range system.Blocks {
-		if block.Type == anthropic.BlockTypeText && block.Text != "" {
-			parts = append(parts, block.Text)
+	for _, b := range sp.Blocks {
+		if b.Text != "" {
+			parts = append(parts, b.Text)
 		}
 	}
 	return strings.Join(parts, "\n")
